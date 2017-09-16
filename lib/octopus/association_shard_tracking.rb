@@ -78,7 +78,7 @@ module Octopus
       super
     end
 
-    def has_and_belongs_to_many(association_id, scope = nil, **options, &extension)
+    def has_and_belongs_to_many(association_id, scope = nil, options = {}, &extension)
       if options == {} && scope.is_a?(Hash)
         default_octopus_opts(scope)
       else

@@ -36,25 +36,8 @@ module Octopus
 
     def self.extended(base)
       base.send(:include, InstanceMethods)
+      base.send(:include, Rails51Methods) if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR == 1
     end
-
-
-
-    # module DefaultMethods
-    #   def has_and_belongs_to_many(association_id, scope = nil, **options, &extension)
-    #     if options == {} && scope.is_a?(Hash)
-    #       default_octopus_opts(scope)
-    #     else
-    #       default_octopus_opts(options)
-    #     end
-    #     super
-    #   end
-    #
-    #   def default_octopus_opts(**options)
-    #     options[:before_add] = [ :connection_on_association=, options[:before_add] ].compact.flatten
-    #     options[:before_remove] = [ :connection_on_association=, options[:before_remove] ].compact.flatten
-    #   end
-    # end
 
     module InstanceMethods
       def connection_on_association=(record)

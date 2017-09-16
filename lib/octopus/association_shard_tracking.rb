@@ -58,7 +58,7 @@ module Octopus
       options[:before_remove] = [ :connection_on_association=, options[:before_remove] ].compact.flatten
     end
 
-    if Octopus.rails51?
+    if Octopus.atleast_rails51?
       def has_and_belongs_to_many(association_id, scope = nil, **options, &extension)
         if options == {} && scope.is_a?(Hash)
           default_octopus_opts(scope)

@@ -14,7 +14,7 @@ module Octopus
       options[:before_remove] = [ :connection_on_association=, options[:before_remove] ].compact.flatten
     end
   end
-    
+
   module AssociationShardTracking
     class MismatchedShards < StandardError
       attr_reader :record, :current_shard
@@ -33,8 +33,6 @@ module Octopus
         ].join(" ")
       end
     end
-
-    include Rails51Methods if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR == 1
 
     def self.extended(base)
       base.send(:include, InstanceMethods)

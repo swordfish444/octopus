@@ -18,13 +18,10 @@ module Octopus
       end
     end
 
-    habtm_args = [association_id, scope = nil, options = {}, &extension]
-    habtm_args51 = [association_id, scope = nil, **options, &extension]
-
     def self.extended(base)
       base.send(:include, InstanceMethods)
-      puts "~~~DX~~~ Including 51" if Octopus.rails51?
-      base.send(:include, Rails51Methods) if Octopus.rails51?
+      puts "~~~DX~~~ Including 51" if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR == 1
+      base.send(:include, Rails51Methods) if ActiveRecord::VERSION::MAJOR == 5 && ActiveRecord::VERSION::MINOR == 1
     end
 
     module Rails51Methods
@@ -36,7 +33,7 @@ module Octopus
         end
         super
       end
-      
+
       def default_octopus_opts(**options)
         options[:before_add] = [ :connection_on_association=, options[:before_add] ].compact.flatten
         options[:before_remove] = [ :connection_on_association=, options[:before_remove] ].compact.flatten

@@ -43,6 +43,21 @@ If you are trying to scope everything to a specific shard, use Octopus.using ins
         self.current_shard = shard if self.class.allowed_shard?(shard)
       end
 
+      def init_with(coder)
+        obj = super
+
+        return obj unless Octopus.enabled?
+        return obj if obj.class.connection_proxy.current_model_replicated?
+
+        current_shard_value = coder['attributes']['current_shard'].value if coder['attributes']['current_shard'].present? && coder['attributes']['current_shard'].value.present?
+
+        coder['attributes'].send(:attributes).send(:values).delete('current_shard')
+        coder['attributes'].send(:attributes).send(:delegate_hash).delete('current_shard')
+
+        obj.current_shard = current_shard_value if current_shard_value.present?
+        obj
+      end
+
       def should_set_current_shard?
         self.respond_to?(:current_shard) && !current_shard.nil?
       end
@@ -86,8 +101,9 @@ If you are trying to scope everything to a specific shard, use Octopus.using ins
       end
 
       def hijack_methods
-        around_save :run_on_shard, :unless => lambda { self.class.custom_octopus_connection }
         after_initialize :set_current_shard
+
+        around_save :run_on_shard, :unless => lambda { self.class.custom_octopus_connection }
 
         class_attribute :custom_octopus_connection
 
@@ -132,7 +148,7 @@ If you are trying to scope everything to a specific shard, use Octopus.using ins
 
       def allowed_shard?(shard)
         if custom_octopus_connection
-          allowed_shards && shard && allowed_shards.include?(shard)
+          allowed_shards && shard && (allowed_shards.include?(shard.to_s) || allowed_shards.include?(shard.to_sym))
         else
           true
         end

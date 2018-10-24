@@ -26,7 +26,7 @@ module Octopus
       :type_cast, :to_sql, :quote, :quote_column_name, :quote_table_name,
       :quote_table_name_for_assignment, :supports_migrations?, :table_alias_for,
       :table_exists?, :in_clause_length, :supports_ddl_transactions?,
-      :sanitize_limit, :prefetch_primary_key?, :current_database, :initialize_schema_migrations_table,
+      :sanitize_limit, :prefetch_primary_key?, :current_database,
       :combine_bind_parameters, :empty_insert_statement_value, :assume_migrated_upto_version,
       :schema_cache, :substitute_at, :internal_string_options_for_primary_key, :lookup_cast_type_from_column,
       :supports_advisory_locks?, :get_advisory_lock, :initialize_internal_metadata_table,
@@ -35,19 +35,20 @@ module Octopus
 
     def execute(sql, name = nil)
       conn = select_connection
-      clean_connection_proxy
+      clean_connection_proxy if should_clean_connection_proxy?('execute')
       conn.execute(sql, name)
     end
 
     def insert(arel, name = nil, pk = nil, id_value = nil, sequence_name = nil, binds = [])
       conn = select_connection
-      clean_connection_proxy
+      clean_connection_proxy if should_clean_connection_proxy?('insert')
       conn.insert(arel, name, pk, id_value, sequence_name, binds)
     end
 
     def update(arel, name = nil, binds = [])
       conn = select_connection
-      clean_connection_proxy
+      # Call the legacy should_clean_connection_proxy? method here, emulating an insert.
+      clean_connection_proxy if should_clean_connection_proxy?('insert')
       conn.update(arel, name, binds)
     end
 
@@ -138,13 +139,15 @@ module Octopus
       shards[current_shard]
     end
 
-    def enable_query_cache!
-      clear_query_cache
-      with_each_healthy_shard { |v| v.connected? && safe_connection(v).enable_query_cache! }
-    end
+    if Octopus.rails4?
+      def enable_query_cache!
+        clear_query_cache
+        with_each_healthy_shard { |v| v.connected? && safe_connection(v).enable_query_cache! }
+      end
 
-    def disable_query_cache!
-      with_each_healthy_shard { |v| v.connected? && safe_connection(v).disable_query_cache! }
+      def disable_query_cache!
+        with_each_healthy_shard { |v| v.connected? && safe_connection(v).disable_query_cache! }
+      end
     end
 
     def clear_query_cache
@@ -157,6 +160,13 @@ module Octopus
 
     def clear_all_connections!
       with_each_healthy_shard(&:disconnect!)
+
+      if Octopus.atleast_rails52?
+        # On Rails 5.2 it is no longer safe to re-use connection pools after they have been discarded
+        # This happens on webservers with forking, for example Phusion Passenger.
+        # Therefor after we clear all connections we reinitialize the shards to get fresh and not discarded ConnectionPool objects
+        proxy_config.reinitialize_shards
+      end
     end
 
     def connected?
@@ -179,6 +189,22 @@ module Octopus
       send_queries_to_balancer(slave_groups[current_slave_group], method, *args, &block)
     end
 
+    def current_model_replicated?
+      replicated && (current_model.try(:replicated) || fully_replicated?)
+    end
+    
+    def initialize_schema_migrations_table
+      if Octopus.atleast_rails52?
+        select_connection.transaction { ActiveRecord::SchemaMigration.create_table }
+      else 
+        select_connection.initialize_schema_migrations_table
+      end
+    end
+    
+    def initialize_metadata_table
+      select_connection.transaction { ActiveRecord::InternalMetadata.create_table }
+    end
+
     protected
 
     # @thiagopradi - This legacy method missing logic will be keep for a while for compatibility
@@ -196,7 +222,13 @@ module Octopus
       elsif should_send_queries_to_replicated_databases?(method)
         send_queries_to_selected_slave(method, *args, &block)
       else
-        select_connection.send(method, *args, &block)
+        val = select_connection.send(method, *args, &block)
+
+        if val.instance_of? ActiveRecord::Result
+          val.current_shard = shard_name
+        end
+
+        val
       end
     end
 
@@ -240,10 +272,6 @@ module Octopus
       replicated && method.to_s =~ /select/ && !block && !slaves_grouped?
     end
 
-    def current_model_replicated?
-      replicated && (current_model.try(:replicated) || fully_replicated?)
-    end
-
     def send_queries_to_selected_slave(method, *args, &block)
       if current_model.replicated || fully_replicated?
         selected_slave = slaves_load_balancer.next current_load_balance_options
@@ -281,7 +309,11 @@ module Octopus
     # while preserving `current_shard`
     def send_queries_to_slave(slave, method, *args, &block)
       using_shard(slave) do
-        select_connection.send(method, *args, &block)
+        val = select_connection.send(method, *args, &block)
+        if val.instance_of? ActiveRecord::Result
+          val.current_shard = slave
+        end
+        val
       end
     end
 
